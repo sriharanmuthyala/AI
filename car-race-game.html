@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Car Race</title>
+<style>
+  body { margin:0; background:#222; display:flex; flex-direction:column; align-items:center; font-family:monospace; color:#fff; }
+  h1 { margin:10px; }
+  canvas { background:#555; border:4px solid #fff; }
+  #info { margin:8px; font-size:18px; }
+  #msg { color:#ff0; }
+</style>
+</head>
+<body>
+<h1>🏎️ CAR RACE 🚗</h1>
+<div id="info">Score: <span id="score">0</span> &nbsp; Best: <span id="best">0</span> &nbsp; <span id="msg">Use ← → to dodge traffic!</span></div>
+<canvas id="game" width="400" height="600"></canvas>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const bestEl = document.getElementById('best');
+const msgEl = document.getElementById('msg');
+
+const roadWidth = 300;
+const roadX = (canvas.width - roadWidth) / 2;
+const laneCount = 3;
+const laneWidth = roadWidth / laneCount;
+
+const player = { w: 40, h: 60, x: canvas.width/2 - 20, y: canvas.height - 90, speed: 6, color: '#e63946' };
+let traffic = [];
+let score = 0;
+let speed = 3;
+let gameOver = false;
+let keys = {};
+let dashOffset = 0;
+let spawnTimer = 0;
+let best = Number(localStorage.getItem('carRaceBest') || 0);
+bestEl.textContent = best;
+
+document.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if (gameOver && e.key === ' ') resetGame();
+});
+document.addEventListener('keyup', e => keys[e.key] = false);
+
+function resetGame() {
+  traffic = [];
+  score = 0;
+  speed = 3;
+  spawnTimer = 0;
+  gameOver = false;
+  player.x = canvas.width/2 - 20;
+  msgEl.textContent = 'Use ← → to dodge traffic!';
+  loop();
+}
+
+const carColors = ['#457b9d', '#f4a261', '#2a9d8f', '#e9c46a', '#8d5fd3'];
+
+function spawnCar() {
+  const w = 40;
+  const lane = Math.floor(Math.random() * laneCount);
+  const x = roadX + lane * laneWidth + (laneWidth - w) / 2;
+  const color = carColors[Math.floor(Math.random() * carColors.length)];
+  traffic.push({ x, y: -60, w, h: 40, color });
+}
+
+function update() {
+  if (keys['ArrowLeft']) player.x -= player.speed;
+  if (keys['ArrowRight']) player.x += player.speed;
+  player.x = Math.max(roadX + 5, Math.min(roadX + roadWidth - player.w - 5, player.x));
+
+  dashOffset = (dashOffset + speed) % 40;
+
+  spawnTimer++;
+  const spawnInterval = Math.max(30, 70 - Math.floor(score / 5));
+  if (spawnTimer > spawnInterval) {
+    spawnTimer = 0;
+    spawnCar();
+  }
+
+  traffic.forEach(c => c.y += speed);
+  traffic = traffic.filter(c => {
+    if (c.y > canvas.height) {
+      score++;
+      return false;
+    }
+    return true;
+  });
+
+  for (const c of traffic) {
+    if (player.x < c.x + c.w && player.x + player.w > c.x &&
+        player.y < c.y + c.h && player.y + player.h > c.y) {
+      gameOver = true;
+      if (score > best) {
+        best = score;
+        localStorage.setItem('carRaceBest', best);
+      }
+      msgEl.textContent = 'Crashed! Press SPACE to restart';
+    }
+  }
+
+  speed = 3 + score * 0.08;
+  scoreEl.textContent = score;
+  bestEl.textContent = best;
+}
+
+function drawCar(x, y, w, h, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = '#cfe8ff';
+  ctx.fillRect(x + 4, y + 6, w - 8, 12);
+  ctx.fillRect(x + 4, y + h - 18, w - 8, 12);
+  ctx.fillStyle = '#222';
+  ctx.fillRect(x - 2, y + 6, 4, 12);
+  ctx.fillRect(x + w - 2, y + 6, 4, 12);
+  ctx.fillRect(x - 2, y + h - 22, 4, 12);
+  ctx.fillRect(x + w - 2, y + h - 22, 4, 12);
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = '#555';
+  ctx.fillRect(roadX, 0, roadWidth, canvas.height);
+
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(roadX, 0); ctx.lineTo(roadX, canvas.height);
+  ctx.moveTo(roadX + roadWidth, 0); ctx.lineTo(roadX + roadWidth, canvas.height);
+  ctx.stroke();
+
+  ctx.strokeStyle = '#ff0';
+  ctx.lineWidth = 3;
+  ctx.setLineDash([20, 20]);
+  for (let lane = 1; lane < laneCount; lane++) {
+    const lx = roadX + lane * laneWidth;
+    ctx.beginPath();
+    ctx.lineDashOffset = -dashOffset;
+    ctx.moveTo(lx, 0); ctx.lineTo(lx, canvas.height);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  traffic.forEach(c => drawCar(c.x, c.y, c.w, c.h, c.color));
+  drawCar(player.x, player.y, player.w, player.h, player.color);
+
+  if (gameOver) {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0, canvas.height/2 - 40, canvas.width, 80);
+    ctx.fillStyle = '#fff';
+    ctx.font = '28px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('GAME OVER', canvas.width/2, canvas.height/2 - 5);
+    ctx.font = '16px monospace';
+    ctx.fillText('Press SPACE to restart', canvas.width/2, canvas.height/2 + 25);
+    ctx.textAlign = 'left';
+  }
+}
+
+function loop() {
+  if (gameOver) { draw(); return; }
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</body>
+</html>
