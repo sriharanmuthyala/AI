@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Donkey</title>
+<style>
+  body { margin:0; background:#222; display:flex; flex-direction:column; align-items:center; font-family:monospace; color:#fff; }
+  h1 { margin:10px; }
+  canvas { background:#4a7d3c; border:4px solid #fff; }
+  #info { margin:8px; font-size:18px; }
+  #msg { color:#ff0; }
+</style>
+</head>
+<body>
+<h1>🐴 DONKEY 🚗</h1>
+<div id="info">Score: <span id="score">0</span> &nbsp; <span id="msg">Use ← → to dodge the donkeys!</span></div>
+<canvas id="game" width="400" height="600"></canvas>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const msgEl = document.getElementById('msg');
+
+const roadWidth = 300;
+const roadX = (canvas.width - roadWidth) / 2;
+
+const car = { w: 40, h: 60, x: canvas.width/2 - 20, y: canvas.height - 90, speed: 6 };
+let donkeys = [];
+let score = 0;
+let speed = 3;
+let gameOver = false;
+let keys = {};
+
+document.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if (gameOver && e.key === ' ') resetGame();
+});
+document.addEventListener('keyup', e => keys[e.key] = false);
+
+function resetGame() {
+  donkeys = [];
+  score = 0;
+  speed = 3;
+  gameOver = false;
+  car.x = canvas.width/2 - 20;
+  msgEl.textContent = 'Use ← → to dodge the donkeys!';
+  loop();
+}
+
+function spawnDonkey() {
+  const w = 40;
+  const x = roadX + 10 + Math.random() * (roadWidth - w - 20);
+  donkeys.push({ x, y: -60, w, h: 40 });
+}
+
+function update() {
+  if (keys['ArrowLeft']) car.x -= car.speed;
+  if (keys['ArrowRight']) car.x += car.speed;
+  car.x = Math.max(roadX + 5, Math.min(roadX + roadWidth - car.w - 5, car.x));
+
+  if (Math.random() < 0.02 + speed * 0.002) spawnDonkey();
+
+  donkeys.forEach(d => d.y += speed);
+  donkeys = donkeys.filter(d => d.y < canvas.height + 60);
+
+  for (const d of donkeys) {
+    if (car.x < d.x + d.w && car.x + car.w > d.x &&
+        car.y < d.y + d.h && car.y + car.h > d.y) {
+      gameOver = true;
+      msgEl.textContent = 'GAME OVER — press SPACE to restart';
+    }
+  }
+
+  if (!gameOver) {
+    score++;
+    speed += 0.002;
+  }
+}
+
+function drawRoad() {
+  ctx.fillStyle = '#4a7d3c';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#555';
+  ctx.fillRect(roadX, 0, roadWidth, canvas.height);
+  ctx.strokeStyle = '#fff';
+  ctx.setLineDash([20, 20]);
+  ctx.beginPath();
+  ctx.moveTo(canvas.width/2, 0);
+  ctx.lineTo(canvas.width/2, canvas.height);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawCar() {
+  ctx.fillStyle = '#e63946';
+  ctx.fillRect(car.x, car.y, car.w, car.h);
+  ctx.fillStyle = '#222';
+  ctx.fillRect(car.x + 5, car.y + 5, car.w - 10, 15);
+  ctx.fillRect(car.x + 5, car.y + car.h - 20, car.w - 10, 15);
+}
+
+function drawDonkey(d) {
+  ctx.fillStyle = '#8b5a2b';
+  ctx.fillRect(d.x, d.y, d.w, d.h);
+  ctx.fillStyle = '#5c3b1e';
+  ctx.fillRect(d.x, d.y - 12, 14, 14);
+  ctx.fillRect(d.x - 6, d.y + 4, 8, 20);
+  ctx.fillRect(d.x + d.w - 2, d.y + 4, 8, 20);
+}
+
+function draw() {
+  drawRoad();
+  donkeys.forEach(drawDonkey);
+  drawCar();
+  scoreEl.textContent = score;
+}
+
+function loop() {
+  if (gameOver) { draw(); return; }
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</body>
+</html>
