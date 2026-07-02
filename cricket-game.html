@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cricket</title>
+<style>
+  body { margin:0; background:#222; display:flex; flex-direction:column; align-items:center; font-family:monospace; color:#fff; }
+  h1 { margin:10px; }
+  canvas { background:#3c8f2f; border:4px solid #fff; }
+  #info { margin:8px; font-size:18px; text-align:center; }
+  #msg { color:#ff0; }
+</style>
+</head>
+<body>
+<h1>🏏 CRICKET</h1>
+<div id="info">
+  Score: <span id="score">0</span> &nbsp;
+  Wickets: <span id="wickets">0</span>/3 &nbsp;
+  Ball: <span id="ball">1</span>/30 &nbsp;
+  <span id="msg">Press SPACE to swing the bat!</span>
+</div>
+<canvas id="game" width="400" height="600"></canvas>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const wicketsEl = document.getElementById('wickets');
+const ballEl = document.getElementById('ball');
+const msgEl = document.getElementById('msg');
+
+const pitchX = canvas.width/2;
+const bowlerY = 80;
+const batsmanY = 500;
+
+const bat = { x: pitchX, y: batsmanY, w: 50, h: 14, swinging: false, swingTimer: 0 };
+let ball = null;
+let score = 0;
+let wickets = 0;
+let ballsBowled = 0;
+const maxBalls = 30;
+const maxWickets = 3;
+let gameOver = false;
+let waitingForNext = true;
+
+document.addEventListener('keydown', e => {
+  if (e.key === ' ') {
+    e.preventDefault();
+    if (gameOver) {
+      resetGame();
+    } else if (!bat.swinging && ball) {
+      bat.swinging = true;
+      bat.swingTimer = 8;
+    }
+  }
+});
+
+function resetGame() {
+  score = 0;
+  wickets = 0;
+  ballsBowled = 0;
+  gameOver = false;
+  ball = null;
+  waitingForNext = true;
+  updateInfo();
+  msgEl.textContent = 'Press SPACE to swing the bat!';
+  setTimeout(bowlBall, 1000);
+  loop();
+}
+
+function bowlBall() {
+  if (gameOver) return;
+  ball = { x: pitchX, y: bowlerY, speed: 4 + Math.random() * 2, hit: false, resolved: false };
+  waitingForNext = false;
+}
+
+function updateInfo() {
+  scoreEl.textContent = score;
+  wicketsEl.textContent = wickets;
+  ballEl.textContent = Math.min(ballsBowled + 1, maxBalls);
+}
+
+function endGame() {
+  gameOver = true;
+  msgEl.textContent = `Game Over! Final Score: ${score}/${wickets}. Press SPACE to restart.`;
+}
+
+function resolveBall(outcome) {
+  ballsBowled++;
+  if (outcome === 'wicket') {
+    wickets++;
+    msgEl.textContent = 'OUT! ' + (wickets < maxWickets ? 'Next ball coming...' : '');
+  } else if (outcome === 'miss') {
+    msgEl.textContent = 'Missed! Next ball coming...';
+  } else {
+    const runs = outcome;
+    score += runs;
+    msgEl.textContent = (runs === 6 ? 'SIX!! ' : runs === 4 ? 'FOUR! ' : `${runs} run(s)! `) + 'Next ball coming...';
+  }
+  updateInfo();
+  ball = null;
+  waitingForNext = true;
+
+  if (wickets >= maxWickets || ballsBowled >= maxBalls) {
+    setTimeout(endGame, 600);
+  } else {
+    setTimeout(bowlBall, 1200);
+  }
+}
+
+function update() {
+  if (bat.swinging) {
+    bat.swingTimer--;
+    if (bat.swingTimer <= 0) bat.swinging = false;
+  }
+
+  if (ball && !ball.resolved) {
+    ball.y += ball.speed;
+
+    // Check for bat contact zone
+    if (ball.y >= bat.y - 10 && ball.y <= bat.y + 10 && !ball.hit) {
+      if (bat.swinging) {
+        ball.hit = true;
+        ball.resolved = true;
+        // Timing-based outcome: closer to center of swing = better shot
+        const timingQuality = bat.swingTimer / 8;
+        const roll = Math.random();
+        let outcome;
+        if (roll < 0.1) outcome = 'wicket';
+        else if (roll < 0.35) outcome = 'miss';
+        else if (roll < 0.55) outcome = 1;
+        else if (roll < 0.7) outcome = 2;
+        else if (roll < 0.85) outcome = 4;
+        else outcome = 6;
+        resolveBall(outcome);
+      }
+    }
+
+    // Ball passes batsman without being hit -> bowled/wicket chance or dot ball
+    if (ball.y > bat.y + 20 && !ball.resolved) {
+      ball.resolved = true;
+      const roll = Math.random();
+      resolveBall(roll < 0.3 ? 'wicket' : 'miss');
+    }
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Pitch
+  ctx.fillStyle = '#d2b48c';
+  ctx.fillRect(pitchX - 40, 0, 80, canvas.height);
+
+  // Stumps at bowler end
+  drawStumps(pitchX, bowlerY - 20);
+  // Stumps at batsman end
+  drawStumps(pitchX, batsmanY + 30);
+
+  // Ball
+  if (ball) {
+    ctx.fillStyle = '#f00';
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, 7, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Bat
+  ctx.save();
+  ctx.translate(bat.x, bat.y);
+  const angle = bat.swinging ? -0.9 : 0;
+  ctx.rotate(angle);
+  ctx.fillStyle = '#8b5a2b';
+  ctx.fillRect(-bat.w/2, -bat.h/2, bat.w, bat.h);
+  ctx.restore();
+
+  if (gameOver) {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0, canvas.height/2 - 40, canvas.width, 80);
+    ctx.fillStyle = '#fff';
+    ctx.font = '20px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('GAME OVER', canvas.width/2, canvas.height/2 - 5);
+    ctx.font = '14px monospace';
+    ctx.fillText(`Score: ${score}/${wickets}`, canvas.width/2, canvas.height/2 + 20);
+  }
+}
+
+function drawStumps(x, y) {
+  ctx.fillStyle = '#fff';
+  for (let i = -10; i <= 10; i += 10) {
+    ctx.fillRect(x + i - 1, y, 3, 20);
+  }
+}
+
+function loop() {
+  if (gameOver) {
+    draw();
+    return;
+  }
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+updateInfo();
+setTimeout(bowlBall, 1000);
+loop();
+</script>
+</body>
+</html>
