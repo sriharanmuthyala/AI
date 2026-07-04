@@ -121,8 +121,8 @@ const netY = courtTop + courtH / 2;
 const NADAL = 0, FEDERER = 1;
 const names = ['NADAL', 'FEDERER'];
 
-const nadal = { x: W / 2, y: courtBottom - 22, w: 78, h: 12, color: '#ff8c2b', head: '#ffcf9e' };
-const federer = { x: W / 2, y: courtTop + 22, w: 78, h: 12, color: '#2e86de', head: '#ffdcb0' };
+const nadal = { x: W / 2, y: courtBottom - 22, w: 78, h: 12, color: '#ff8c2b', head: '#d9a066', kind: 'nadal' };
+const federer = { x: W / 2, y: courtTop + 22, w: 78, h: 12, color: '#2e86de', head: '#f0c49a', kind: 'federer' };
 
 const ball = { x: W / 2, y: netY, vx: 0, vy: 0, r: 8 };
 
@@ -297,14 +297,72 @@ function drawPlayer(p) {
   ctx.strokeStyle = p.color;
   ctx.lineWidth = 3;
   ctx.strokeRect(p.x - p.w / 2, p.y - p.h / 2, p.w, p.h);
+  const below = p.y > netY;
+  const faceY = below ? p.y + 20 : p.y - 20;
+  drawFace(p, faceY, below);
+}
+
+function drawFace(p, cy, below) {
+  const cx = p.x, r = 11;
+  ctx.save();
+
+  // ears
+  ctx.fillStyle = p.head;
+  ctx.beginPath(); ctx.arc(cx - r + 2, cy, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + r - 2, cy, 3, 0, Math.PI * 2); ctx.fill();
+
+  // head
   ctx.beginPath();
-  ctx.arc(p.x, p.y > netY ? p.y + 14 : p.y - 14, 8, 0, Math.PI * 2);
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.fillStyle = p.head;
   ctx.fill();
-  ctx.fillStyle = p.color;
-  ctx.font = 'bold 11px Trebuchet MS';
-  ctx.textAlign = 'center';
-  ctx.fillText(p.name === undefined ? '' : '', p.x, p.y);
+
+  if (p.kind === 'nadal') {
+    // dark swept hair peeking above headband
+    ctx.fillStyle = '#2b2119';
+    ctx.beginPath();
+    ctx.arc(cx, cy - r + 2, r - 2, Math.PI, 0);
+    ctx.fill();
+    // red headband (signature look)
+    ctx.fillStyle = '#e63946';
+    ctx.fillRect(cx - r - 1, cy - 4, r * 2 + 2, 5);
+    // eyes + focused brow
+    ctx.fillStyle = '#2b2119';
+    ctx.fillRect(cx - 6, cy + 1, 3, 3);
+    ctx.fillRect(cx + 3, cy + 1, 3, 3);
+    ctx.strokeStyle = '#2b2119';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(cx - 7, cy - 1); ctx.lineTo(cx - 3, cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx + 7, cy - 1); ctx.lineTo(cx + 3, cy); ctx.stroke();
+    // sideburns/stubble
+    ctx.fillStyle = 'rgba(43,33,25,0.5)';
+    ctx.fillRect(cx - r, cy + 3, 2, 5);
+    ctx.fillRect(cx + r - 2, cy + 3, 2, 5);
+  } else {
+    // swept-back light brown hair, classic side part
+    ctx.fillStyle = '#5a3a22';
+    ctx.beginPath();
+    ctx.arc(cx, cy - r + 3, r - 2, Math.PI, 0);
+    ctx.fill();
+    ctx.fillRect(cx - r + 1, cy - r + 3, r * 2 - 2, 4);
+    // calm eyes
+    ctx.fillStyle = '#2b2119';
+    ctx.fillRect(cx - 6, cy + 1, 3, 3);
+    ctx.fillRect(cx + 3, cy + 1, 3, 3);
+    ctx.strokeStyle = '#2b2119';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx - 7, cy - 1); ctx.lineTo(cx - 3, cy - 1); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx + 3, cy - 1); ctx.lineTo(cx + 7, cy - 1); ctx.stroke();
+  }
+
+  // subtle smile
+  ctx.strokeStyle = '#8a4a30';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy + 4, 3, 0, Math.PI);
+  ctx.stroke();
+
+  ctx.restore();
 }
 
 function drawBall() {
