@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Timma & Edu's Car Race</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: linear-gradient(#1b1b2f, #16213e);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Trebuchet MS', Arial, sans-serif;
+    color: #fff;
+    touch-action: manipulation;
+  }
+  h1 {
+    margin: 6px 0;
+    font-size: 26px;
+    text-align: center;
+    text-shadow: 0 2px 0 #000;
+  }
+  #hud {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 8px;
+    font-size: 18px;
+    font-weight: bold;
+  }
+  #wrap {
+    position: relative;
+    touch-action: none;
+  }
+  canvas {
+    background: #4a7d3c;
+    border: 5px solid #fff;
+    border-radius: 10px;
+    display: block;
+    cursor: pointer;
+  }
+  #overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.55);
+    border-radius: 6px;
+    text-align: center;
+    padding: 16px;
+  }
+  #overlay h2 { font-size: 26px; margin: 4px 0; }
+  #overlay p { margin: 4px 0 14px; font-size: 15px; opacity: 0.9; }
+  .btn {
+    background: #ffcc00;
+    color: #222;
+    border: none;
+    padding: 12px 28px;
+    font-size: 18px;
+    font-weight: bold;
+    border-radius: 30px;
+    cursor: pointer;
+    box-shadow: 0 4px 0 #b38f00;
+  }
+  .btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #b38f00; }
+  #controls {
+    display: flex;
+    gap: 40px;
+    margin-top: 10px;
+  }
+  .side-btn {
+    width: 90px;
+    height: 56px;
+    font-size: 22px;
+    font-weight: bold;
+    background: #2e86de;
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 4px 0 #1b4f72;
+  }
+  .side-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #1b4f72; }
+  #hint { margin-top: 6px; font-size: 13px; opacity: 0.8; }
+</style>
+</head>
+<body>
+<h1>🏎️ Timma & Edu's Car Race 🏁</h1>
+<div id="hud">
+  <div>Score: <span id="score">0</span></div>
+  <div>Best: <span id="best">0</span></div>
+</div>
+<div id="wrap">
+  <canvas id="game" width="360" height="560"></canvas>
+  <div id="overlay">
+    <h2 id="overlayTitle">Ready to Race?</h2>
+    <p id="overlayText">Tap left/right side of the road to dodge cars!</p>
+    <button class="btn" id="startBtn">▶ Start</button>
+  </div>
+</div>
+<div id="controls">
+  <button class="side-btn" id="leftBtn">◀ LEFT</button>
+  <button class="side-btn" id="rightBtn">RIGHT ▶</button>
+</div>
+<div id="hint">Or just tap/click anywhere on the road</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const bestEl = document.getElementById('best');
+const overlay = document.getElementById('overlay');
+const overlayTitle = document.getElementById('overlayTitle');
+const overlayText = document.getElementById('overlayText');
+const startBtn = document.getElementById('startBtn');
+const leftBtn = document.getElementById('leftBtn');
+const rightBtn = document.getElementById('rightBtn');
+
+const LANES = 3;
+const roadWidth = 280;
+const roadX = (canvas.width - roadWidth) / 2;
+const laneWidth = roadWidth / LANES;
+
+const car = { lane: 1, w: 44, h: 70, y: canvas.height - 100 };
+let rivals = [];
+let score = 0;
+let best = Number(localStorage.getItem('carRaceBest') || 0);
+let speed = 4;
+let running = false;
+let dashOffset = 0;
+
+bestEl.textContent = best;
+
+function laneCenterX(lane) {
+  return roadX + laneWidth * lane + laneWidth / 2;
+}
+
+function resetGame() {
+  rivals = [];
+  score = 0;
+  speed = 4;
+  car.lane = 1;
+  scoreEl.textContent = 0;
+  running = true;
+  overlay.style.display = 'none';
+  spawnRival();
+  requestAnimationFrame(loop);
+}
+
+function spawnRival() {
+  const lane = Math.floor(Math.random() * LANES);
+  rivals.push({ lane, y: -80, w: 44, h: 70, color: randomColor() });
+}
+
+function randomColor() {
+  const colors = ['#e74c3c', '#9b59b6', '#f1c40f', '#1abc9c', '#e67e22'];
+  return colors[Math.floor(Math.random() * colors.length)];
+}
+
+function moveLeft() {
+  if (!running) return;
+  car.lane = Math.max(0, car.lane - 1);
+}
+function moveRight() {
+  if (!running) return;
+  car.lane = Math.min(LANES - 1, car.lane + 1);
+}
+
+canvas.addEventListener('pointerdown', e => {
+  if (!running) return;
+  const rect = canvas.getBoundingClientRect();
+  const clickX = e.clientX - rect.left;
+  if (clickX < canvas.width / 2) moveLeft();
+  else moveRight();
+});
+leftBtn.addEventListener('pointerdown', () => moveLeft());
+rightBtn.addEventListener('pointerdown', () => moveRight());
+startBtn.addEventListener('pointerdown', () => resetGame());
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft') moveLeft();
+  if (e.key === 'ArrowRight') moveRight();
+  if (e.key === ' ' && !running) resetGame();
+});
+
+function drawRoad() {
+  ctx.fillStyle = '#4a7d3c';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#555';
+  ctx.fillRect(roadX, 0, roadWidth, canvas.height);
+
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 4;
+  for (let i = 1; i < LANES; i++) {
+    const x = roadX + laneWidth * i;
+    ctx.setLineDash([20, 18]);
+    ctx.lineDashOffset = -dashOffset;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, canvas.height);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+}
+
+function drawCarShape(x, y, w, h, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(x - w/2, y - h/2, w, h);
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.fillRect(x - w/2 + 5, y - h/2 + 8, w - 10, h/3);
+  ctx.fillStyle = '#222';
+  ctx.fillRect(x - w/2 - 4, y - h/2 + 8, 6, 14);
+  ctx.fillRect(x + w/2 - 2, y - h/2 + 8, 6, 14);
+  ctx.fillRect(x - w/2 - 4, y + h/2 - 22, 6, 14);
+  ctx.fillRect(x + w/2 - 2, y + h/2 - 22, 6, 14);
+}
+
+function update() {
+  dashOffset = (dashOffset + speed) % 38;
+  score += 0.1;
+  scoreEl.textContent = Math.floor(score);
+  speed += 0.0025;
+
+  for (const r of rivals) r.y += speed;
+  if (rivals.length && rivals[rivals.length - 1].y > 140) spawnRival();
+  rivals = rivals.filter(r => r.y < canvas.height + 100);
+
+  const carX = laneCenterX(car.lane);
+  for (const r of rivals) {
+    const rX = laneCenterX(r.lane);
+    if (r.lane === car.lane &&
+        Math.abs(r.y - car.y) < (r.h + car.h) / 2 - 10) {
+      endGame();
+    }
+  }
+}
+
+function endGame() {
+  running = false;
+  if (Math.floor(score) > best) {
+    best = Math.floor(score);
+    localStorage.setItem('carRaceBest', best);
+    bestEl.textContent = best;
+  }
+  overlayTitle.textContent = '💥 Crash!';
+  overlayText.textContent = `Score: ${Math.floor(score)} — Best: ${best}`;
+  startBtn.textContent = '↻ Race Again';
+  overlay.style.display = 'flex';
+}
+
+function draw() {
+  drawRoad();
+  for (const r of rivals) drawCarShape(laneCenterX(r.lane), r.y, r.w, r.h, r.color);
+  drawCarShape(laneCenterX(car.lane), car.y, car.w, car.h, '#2ecc71');
+}
+
+function loop() {
+  if (!running) return;
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+draw();
+</script>
+</body>
+</html>
