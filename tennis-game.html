@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Nadal vs Federer — Wimbledon Showdown</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: linear-gradient(#2b0a3d, #1b1b2f);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Trebuchet MS', Arial, sans-serif;
+    color: #fff;
+    touch-action: manipulation;
+  }
+  h1 {
+    margin: 6px 0 2px;
+    font-size: 22px;
+    text-align: center;
+    text-shadow: 0 2px 0 #000;
+  }
+  #sub { font-size: 12px; opacity: 0.75; margin-bottom: 6px; }
+  #hud {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 6px;
+    font-size: 15px;
+    font-weight: bold;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  #hud span.label { opacity: 0.7; font-weight: normal; }
+  #wrap { position: relative; touch-action: none; }
+  canvas {
+    background: #4a2d6d;
+    border: 5px solid #eaeaea;
+    border-radius: 10px;
+    display: block;
+    cursor: pointer;
+  }
+  #call {
+    text-align: center;
+    min-height: 20px;
+    font-size: 15px;
+    font-weight: bold;
+    color: #ffe066;
+    margin-top: 6px;
+  }
+  #overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.6);
+    border-radius: 6px;
+    text-align: center;
+    padding: 16px;
+  }
+  #overlay h2 { font-size: 22px; margin: 4px 0; }
+  #overlay p { margin: 4px 0 14px; font-size: 14px; opacity: 0.9; max-width: 320px; }
+  .btn {
+    background: #ffcc00;
+    color: #222;
+    border: none;
+    padding: 12px 26px;
+    font-size: 17px;
+    font-weight: bold;
+    border-radius: 30px;
+    cursor: pointer;
+    box-shadow: 0 4px 0 #b38f00;
+  }
+  .btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #b38f00; }
+  #hint { margin-top: 6px; font-size: 12px; opacity: 0.75; text-align: center; max-width: 420px; }
+</style>
+</head>
+<body>
+<h1>🏆 Nadal vs Federer — Wimbledon Showdown 🏆</h1>
+<div id="sub">Best of 3 sets · Full Centre Court crowd · Umpire on the chair</div>
+<div id="hud">
+  <div><span class="label">SETS</span> <span id="setsScore">0 - 0</span></div>
+  <div><span class="label">GAMES</span> <span id="gamesScore">0 - 0</span></div>
+  <div><span class="label">POINTS</span> <span id="pointsScore">Love - Love</span></div>
+</div>
+<div id="wrap">
+  <canvas id="game" width="440" height="720"></canvas>
+  <div id="overlay">
+    <h2 id="overlayTitle">Wimbledon Final</h2>
+    <p id="overlayText">2 players, one court. NADAL (bottom) uses ← → arrow keys. FEDERER (top) uses A / D keys. You can also tap/drag your own half of the court.</p>
+    <button class="btn" id="startBtn">▶ Start Match</button>
+  </div>
+</div>
+<div id="call">&nbsp;</div>
+<div id="hint">Both in classic Wimbledon whites, as the dress code demands. Watch for the pace car doing laps around the stadium!</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const setsEl = document.getElementById('setsScore');
+const gamesEl = document.getElementById('gamesScore');
+const pointsEl = document.getElementById('pointsScore');
+const callEl = document.getElementById('call');
+const overlay = document.getElementById('overlay');
+const overlayTitle = document.getElementById('overlayTitle');
+const overlayText = document.getElementById('overlayText');
+const startBtn = document.getElementById('startBtn');
+
+const W = canvas.width, H = canvas.height;
+const TRACK = 22, CROWD = 46, MARGIN = TRACK + CROWD;
+const courtLeft = MARGIN, courtRight = W - MARGIN;
+const courtTop = MARGIN, courtBottom = H - MARGIN;
+const courtW = courtRight - courtLeft, courtH = courtBottom - courtTop;
+const netY = courtTop + courtH / 2;
+
+const NADAL = 0, FEDERER = 1;
+const names = ['NADAL', 'FEDERER'];
+
+const nadal = { x: W / 2, y: courtBottom - 22, w: 78, h: 12, color: '#ff8c2b', head: '#ffcf9e' };
+const federer = { x: W / 2, y: courtTop + 22, w: 78, h: 12, color: '#2e86de', head: '#ffdcb0' };
+
+const ball = { x: W / 2, y: netY, vx: 0, vy: 0, r: 8 };
+
+let running = false;
+let serveTimer = 0;
+let servingTo = NADAL;
+let callText = 'Love All';
+
+let points = [0, 0];
+let games = [0, 0];
+let sets = [0, 0];
+let matchOver = false;
+
+let keys = {};
+document.addEventListener('keydown', e => { keys[e.key] = true; });
+document.addEventListener('keyup', e => { keys[e.key] = false; });
+
+canvas.addEventListener('pointerdown', handlePointer);
+canvas.addEventListener('pointermove', e => { if (e.buttons !== undefined && e.pressure === 0 && e.pointerType === 'mouse') return; handlePointer(e); });
+function handlePointer(e) {
+  const rect = canvas.getBoundingClientRect();
+  const px = (e.clientX - rect.left) * (W / rect.width);
+  const py = (e.clientY - rect.top) * (H / rect.height);
+  if (py < H / 2) federer.x = clamp(px, courtLeft + federer.w / 2, courtRight - federer.w / 2);
+  else nadal.x = clamp(px, courtLeft + nadal.w / 2, courtRight - nadal.w / 2);
+}
+
+startBtn.addEventListener('pointerdown', startMatch);
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// ---------- Crowd (audience) ----------
+let crowd = [];
+function buildCrowd() {
+  crowd = [];
+  const colors = ['#e74c3c', '#f1c40f', '#3498db', '#2ecc71', '#e67e22', '#ecf0f1', '#9b59b6'];
+  function fillBand(x0, y0, x1, y1) {
+    for (let y = y0; y < y1; y += 9) {
+      for (let x = x0; x < x1; x += 9) {
+        crowd.push({ x: x + (Math.random() * 4 - 2), y: y + (Math.random() * 4 - 2), c: colors[Math.floor(Math.random() * colors.length)] });
+      }
+    }
+  }
+  fillBand(TRACK, TRACK, W - TRACK, courtTop);
+  fillBand(TRACK, courtBottom, W - TRACK, H - TRACK);
+  fillBand(TRACK, courtTop, courtLeft, courtBottom);
+  fillBand(courtRight, courtTop, W - TRACK, courtBottom);
+}
+buildCrowd();
+
+function drawCrowd() {
+  for (const p of crowd) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+    ctx.fillStyle = p.c;
+    ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.font = 'bold 14px Trebuchet MS';
+  ctx.textAlign = 'center';
+  ctx.fillText('WIMBLEDON · CENTRE COURT', W / 2, TRACK + 14);
+}
+
+// ---------- Pace car looping the stadium ----------
+const trackInset = TRACK / 2;
+const trackRect = { x0: trackInset, y0: trackInset, x1: W - trackInset, y1: H - trackInset };
+const trackPerimeter = 2 * (trackRect.x1 - trackRect.x0) + 2 * (trackRect.y1 - trackRect.y0);
+let carDist = 0;
+const carSpeed = 2.2;
+
+function pointOnTrack(d) {
+  d = ((d % trackPerimeter) + trackPerimeter) % trackPerimeter;
+  const topLen = trackRect.x1 - trackRect.x0;
+  const rightLen = trackRect.y1 - trackRect.y0;
+  if (d < topLen) return { x: trackRect.x0 + d, y: trackRect.y0, a: 0 };
+  d -= topLen;
+  if (d < rightLen) return { x: trackRect.x1, y: trackRect.y0 + d, a: Math.PI / 2 };
+  d -= rightLen;
+  if (d < topLen) return { x: trackRect.x1 - d, y: trackRect.y1, a: Math.PI };
+  d -= topLen;
+  return { x: trackRect.x0, y: trackRect.y1 - d, a: -Math.PI / 2 };
+}
+
+function drawPaceCar() {
+  const p = pointOnTrack(carDist);
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(p.a);
+  ctx.fillStyle = '#ffcc00';
+  ctx.fillRect(-9, -5, 18, 10);
+  ctx.fillStyle = '#222';
+  ctx.fillRect(-5, -5, 6, 4);
+  ctx.restore();
+}
+
+// ---------- Court ----------
+function drawCourt() {
+  ctx.fillStyle = '#4a2d6d';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#3d3d3d';
+  ctx.fillRect(trackRect.x0, trackRect.y0, trackRect.x1 - trackRect.x0, trackRect.y1 - trackRect.y0);
+  ctx.fillStyle = '#5a1f6b';
+  ctx.fillRect(TRACK, TRACK, W - TRACK * 2, H - TRACK * 2);
+
+  drawCrowd();
+
+  ctx.fillStyle = '#3a8f4a';
+  ctx.fillRect(courtLeft - 14, courtTop - 14, courtW + 28, courtH + 28);
+  ctx.fillStyle = '#2f7a3e';
+  ctx.fillRect(courtLeft, courtTop, courtW, courtH);
+
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(courtLeft, courtTop, courtW, courtH);
+  ctx.beginPath();
+  ctx.moveTo(courtLeft + 14, courtTop);
+  ctx.lineTo(courtLeft + 14, courtBottom);
+  ctx.moveTo(courtRight - 14, courtTop);
+  ctx.lineTo(courtRight - 14, courtBottom);
+  ctx.moveTo(W / 2, courtTop + 60);
+  ctx.lineTo(W / 2, courtBottom - 60);
+  ctx.stroke();
+
+  ctx.strokeStyle = '#eee';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(courtLeft - 14, netY);
+  ctx.lineTo(courtRight + 14, netY);
+  ctx.stroke();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  for (let x = courtLeft - 14; x <= courtRight + 14; x += 8) {
+    ctx.beginPath();
+    ctx.moveTo(x, netY - 6);
+    ctx.lineTo(x, netY + 6);
+    ctx.stroke();
+  }
+
+  drawUmpire();
+  drawPaceCar();
+}
+
+function drawUmpire() {
+  const ux = courtRight + 24, uy = netY;
+  ctx.fillStyle = '#8a5a2b';
+  ctx.fillRect(ux - 3, uy - 4, 6, 26);
+  ctx.fillStyle = '#c9c9c9';
+  ctx.fillRect(ux - 12, uy - 22, 24, 20);
+  ctx.fillStyle = '#ffdcb0';
+  ctx.beginPath();
+  ctx.arc(ux, uy - 30, 6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#2c3e50';
+  ctx.fillRect(ux - 6, uy - 26, 12, 10);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.strokeStyle = '#222';
+  ctx.lineWidth = 1;
+  const bw = 96, bh = 22, bx = ux - bw / 2, by = uy - 62;
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(bx, by, bw, bh, 6) : ctx.rect(bx, by, bw, bh);
+  ctx.fill();
+  ctx.fillStyle = '#222';
+  ctx.font = 'bold 11px Trebuchet MS';
+  ctx.textAlign = 'center';
+  ctx.fillText(callText, ux, by + 15);
+}
+
+function drawPlayer(p) {
+  ctx.fillStyle = '#f5f5f5';
+  ctx.fillRect(p.x - p.w / 2, p.y - p.h / 2, p.w, p.h);
+  ctx.strokeStyle = p.color;
+  ctx.lineWidth = 3;
+  ctx.strokeRect(p.x - p.w / 2, p.y - p.h / 2, p.w, p.h);
+  ctx.beginPath();
+  ctx.arc(p.x, p.y > netY ? p.y + 14 : p.y - 14, 8, 0, Math.PI * 2);
+  ctx.fillStyle = p.head;
+  ctx.fill();
+  ctx.fillStyle = p.color;
+  ctx.font = 'bold 11px Trebuchet MS';
+  ctx.textAlign = 'center';
+  ctx.fillText(p.name === undefined ? '' : '', p.x, p.y);
+}
+
+function drawBall() {
+  ctx.beginPath();
+  ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+  ctx.fillStyle = '#e8ff3c';
+  ctx.fill();
+  ctx.strokeStyle = '#999';
+  ctx.stroke();
+}
+
+// ---------- Scoring ----------
+function pointLabel(mine, theirs) {
+  if (mine >= 3 && theirs >= 3) {
+    if (mine === theirs) return '40';
+    return mine > theirs ? 'AD' : '40';
+  }
+  return ['0', '15', '30', '40'][mine];
+}
+
+function updateScoreHud() {
+  setsEl.textContent = `${sets[NADAL]} - ${sets[FEDERER]}`;
+  gamesEl.textContent = `${games[NADAL]} - ${games[FEDERER]}`;
+  const n = points[NADAL] >= 3 && points[FEDERER] >= 3 && points[NADAL] === points[FEDERER] ? 'Deuce' : pointLabel(points[NADAL], points[FEDERER]);
+  const f = points[NADAL] >= 3 && points[FEDERER] >= 3 && points[NADAL] === points[FEDERER] ? 'Deuce' : pointLabel(points[FEDERER], points[NADAL]);
+  pointsEl.textContent = (n === 'Deuce') ? 'Deuce' : `${n} - ${f}`;
+}
+
+function announce(text) {
+  callText = text;
+  callEl.textContent = text;
+}
+
+function awardPoint(winner) {
+  points[winner]++;
+  const loser = winner === NADAL ? FEDERER : NADAL;
+  if (points[winner] >= 4 && points[winner] - points[loser] >= 2) {
+    winGame(winner);
+  } else {
+    updateScoreHud();
+    if (points[NADAL] >= 3 && points[FEDERER] >= 3) {
+      announce(points[NADAL] === points[FEDERER] ? 'Deuce' : `Advantage ${names[winner]}`);
+    } else {
+      announce(`${pointLabel(points[NADAL], points[FEDERER])} - ${pointLabel(points[FEDERER], points[NADAL])}`);
+    }
+  }
+  serveTimer = 70;
+  servingTo = winner === NADAL ? FEDERER : NADAL;
+}
+
+function winGame(winner) {
+  games[winner]++;
+  points = [0, 0];
+  updateScoreHud();
+  announce(`Game, ${names[winner]}. ${games[NADAL]}-${games[FEDERER]}`);
+  const loser = winner === NADAL ? FEDERER : NADAL;
+  if (games[winner] >= 6 && (games[winner] - games[loser] >= 2 || games[winner] === 7)) {
+    winSet(winner);
+  }
+}
+
+function winSet(winner) {
+  sets[winner]++;
+  const setScore = `${games[NADAL]}-${games[FEDERER]}`;
+  games = [0, 0];
+  updateScoreHud();
+  announce(`Set, ${names[winner]}! (${setScore})`);
+  if (sets[winner] >= 2) {
+    endMatch(winner);
+  }
+}
+
+function endMatch(winner) {
+  matchOver = true;
+  running = false;
+  overlayTitle.textContent = `🏆 ${names[winner]} wins Wimbledon!`;
+  overlayText.textContent = `Final sets: ${sets[NADAL]} - ${sets[FEDERER]}. What a match!`;
+  startBtn.textContent = '↻ Play Again';
+  overlay.style.display = 'flex';
+}
+
+function resetBall(toward) {
+  ball.x = W / 2;
+  ball.y = netY;
+  const dir = toward === NADAL ? 1 : -1;
+  const angle = (Math.random() * 0.6 - 0.3);
+  const speed = 5.5;
+  ball.vx = Math.sin(angle) * speed;
+  ball.vy = Math.cos(angle) * speed * dir;
+}
+
+function startMatch() {
+  points = [0, 0]; games = [0, 0]; sets = [0, 0];
+  matchOver = false;
+  nadal.x = W / 2; federer.x = W / 2;
+  updateScoreHud();
+  announce('Love All');
+  overlay.style.display = 'none';
+  running = true;
+  servingTo = NADAL;
+  serveTimer = 40;
+  requestAnimationFrame(loop);
+}
+
+// ---------- Game loop ----------
+function update() {
+  carDist += carSpeed;
+
+  if (keys['ArrowLeft']) nadal.x -= 6;
+  if (keys['ArrowRight']) nadal.x += 6;
+  if (keys['a'] || keys['A']) federer.x -= 6;
+  if (keys['d'] || keys['D']) federer.x += 6;
+  nadal.x = clamp(nadal.x, courtLeft + nadal.w / 2, courtRight - nadal.w / 2);
+  federer.x = clamp(federer.x, courtLeft + federer.w / 2, courtRight - federer.w / 2);
+
+  if (serveTimer > 0) {
+    serveTimer--;
+    if (serveTimer === 0) resetBall(servingTo);
+    return;
+  }
+
+  ball.x += ball.vx;
+  ball.y += ball.vy;
+
+  if (ball.x - ball.r < courtLeft || ball.x + ball.r > courtRight) {
+    ball.vx *= -1;
+    ball.x = clamp(ball.x, courtLeft + ball.r, courtRight - ball.r);
+  }
+
+  if (ball.vy < 0 && ball.y - ball.r <= federer.y + federer.h / 2 &&
+      ball.y - ball.r >= federer.y - federer.h / 2 - 6 &&
+      Math.abs(ball.x - federer.x) <= federer.w / 2 + ball.r) {
+    ball.vy *= -1.03;
+    ball.vx += (ball.x - federer.x) * 0.06;
+  }
+  if (ball.vy > 0 && ball.y + ball.r >= nadal.y - nadal.h / 2 &&
+      ball.y + ball.r <= nadal.y + nadal.h / 2 + 6 &&
+      Math.abs(ball.x - nadal.x) <= nadal.w / 2 + ball.r) {
+    ball.vy *= -1.03;
+    ball.vx += (ball.x - nadal.x) * 0.06;
+  }
+
+  if (ball.y < courtTop - 30) { awardPoint(NADAL); }
+  else if (ball.y > courtBottom + 30) { awardPoint(FEDERER); }
+}
+
+function draw() {
+  drawCourt();
+  drawPlayer(nadal);
+  drawPlayer(federer);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 12px Trebuchet MS';
+  ctx.textAlign = 'center';
+  ctx.fillText('NADAL', nadal.x, nadal.y + 34);
+  ctx.fillText('FEDERER', federer.x, federer.y - 28);
+  if (!matchOver) drawBall();
+}
+
+function loop() {
+  if (!running) return;
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+draw();
+</script>
+</body>
+</html>
