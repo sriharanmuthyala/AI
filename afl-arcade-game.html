@@ -611,9 +611,13 @@ let switchCd = 0;              // brief cooldown to stop control flickering betw
 
 function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
 
-function makeEntity(team, controlled, x, y){
+const SKIN_TONES = ["#f0c8a0","#e0ac69","#c68642","#8d5524","#5a3825"];
+const HAIR_COLORS = ["#1b1611","#2f2013","#5a3a1a","#8a5a2b","#c9a24b","#e8e0d5","#1a1a1a"];
+
+function makeEntity(team, controlled, x, y, number, role){
   return {
-    team, controlled,
+    team, controlled, number, role,
+    anchor:{x,y},
     x, y, vx:0, vy:0,
     facing:{x: team==="player"?1:-1, y:0},
     radius: 16,
@@ -621,6 +625,8 @@ function makeEntity(team, controlled, x, y){
     stun: 0,
     tackleCd: 0,
     pickupCd: 0,
+    skin: SKIN_TONES[(Math.random()*SKIN_TONES.length)|0],
+    hair: HAIR_COLORS[(Math.random()*HAIR_COLORS.length)|0],
   };
 }
 
@@ -649,23 +655,32 @@ function updateControlSwitch(dt){
   }
 }
 
+let initialControlledEntity = null;
+
 function resetPositions(){
   entities = [];
-  const playerAttacksRight = true; // player always attacks right goal for control clarity
+  const topY = FIELD.cy-130, botY = FIELD.cy+130;
 
-  // Player team: controlled + 2 AI teammates
-  const pControlled = makeEntity("player", true, 300, FIELD.cy);
-  const pMate1 = makeEntity("player", false, 220, FIELD.cy-120);
-  const pMate2 = makeEntity("player", false, 220, FIELD.cy+120);
-  entities.push(pControlled, pMate1, pMate2);
-  controlledEntity = pControlled;
+  // Player team: 2-2-2 formation (defenders / midfielders / forwards) attacking the right goal
+  const pDef1 = makeEntity("player", false, 230, topY, 1, "def");
+  const pDef2 = makeEntity("player", false, 230, botY, 2, "def");
+  const pMid1 = makeEntity("player", true,  460, topY, 3, "mid");
+  const pMid2 = makeEntity("player", false, 460, botY, 4, "mid");
+  const pFwd1 = makeEntity("player", false, 760, topY, 5, "fwd");
+  const pFwd2 = makeEntity("player", false, 760, botY, 6, "fwd");
+  entities.push(pDef1, pDef2, pMid1, pMid2, pFwd1, pFwd2);
+  controlledEntity = pMid1;
+  initialControlledEntity = pMid1;
   switchCd = 0;
 
-  // CPU team: 3 AI
-  const c1 = makeEntity("cpu", false, 700, FIELD.cy);
-  const c2 = makeEntity("cpu", false, 780, FIELD.cy-120);
-  const c3 = makeEntity("cpu", false, 780, FIELD.cy+120);
-  entities.push(c1, c2, c3);
+  // CPU team: mirrored 2-2-2 formation attacking the left goal
+  const cDef1 = makeEntity("cpu", false, 770, topY, 1, "def");
+  const cDef2 = makeEntity("cpu", false, 770, botY, 2, "def");
+  const cMid1 = makeEntity("cpu", false, 540, topY, 3, "mid");
+  const cMid2 = makeEntity("cpu", false, 540, botY, 4, "mid");
+  const cFwd1 = makeEntity("cpu", false, 240, topY, 5, "fwd");
+  const cFwd2 = makeEntity("cpu", false, 240, botY, 6, "fwd");
+  entities.push(cDef1, cDef2, cMid1, cMid2, cFwd1, cFwd2);
 
   ball = {
     x: FIELD.cx, y: FIELD.cy, vx:0, vy:0,
@@ -745,26 +760,39 @@ function aiUpdate(ent, dt){
     }
     moveToward(ent, attack.x, targetY, dt);
   } else if(ball.carrier && ball.carrier.team!==ent.team){
-    // opponent has the ball: nearest defender chases, others zone off
-    const teammates = teammatesOf(ent.team).filter(e=>!e.controlled);
+    // opponent has the ball: only the single closest teammate presses the tackle,
+    // everyone else holds a defensive zone so the whole side doesn't mob the ball
+    const teammates = teammatesOf(ent.team);
     let nearestDefender = null, bd=Infinity;
     teammates.forEach(t=>{
+      if(t.stun>0) return;
       const d = dist(t, ball.carrier);
       if(d<bd){ bd=d; nearestDefender=t; }
     });
     if(nearestDefender===ent){
       moveToward(ent, ball.carrier.x, ball.carrier.y, dt, 1.05);
     } else {
-      const midX = (ball.carrier.x + defend.x)/2;
-      moveToward(ent, midX, (defend.y+ball.carrier.y*1)/2 + (ent.y<FIELD.cy?-40:40), dt, 0.7);
+      const zoneX = ent.anchor.x*0.55 + defend.x*0.15 + ball.carrier.x*0.3;
+      const zoneY = ent.anchor.y*0.75 + ball.carrier.y*0.25;
+      moveToward(ent, zoneX, zoneY, dt, 0.55);
     }
   } else if(ball.carrier && ball.carrier.team===ent.team){
-    // teammate has the ball: make a supporting run
-    const offset = ent.y < ball.carrier.y ? -90 : 90;
-    moveToward(ent, attack.x - 120, FIELD.cy+offset*0.6, dt, 0.85);
+    // teammate has the ball: hold formation shape and drift into space ahead
+    // instead of every player converging on the ball carrier
+    const targetX = ent.anchor.x*0.55 + attack.x*0.25 + ball.carrier.x*0.2;
+    const targetY = ent.anchor.y*0.8 + ball.carrier.y*0.2;
+    moveToward(ent, targetX, targetY, dt, 0.65);
   } else {
-    // loose ball: go get it
-    moveToward(ent, ball.x, ball.y, dt, 1.0);
+    // loose ball: only the nearest one or two teammates contest it, others hold zone
+    const teammates = teammatesOf(ent.team).slice().sort((a,b)=>dist(a,ball)-dist(b,ball));
+    const rank = teammates.indexOf(ent);
+    if(rank<=1){
+      moveToward(ent, ball.x, ball.y, dt, 1.0);
+    } else {
+      const zoneX = ent.anchor.x*0.7 + ball.x*0.3;
+      const zoneY = ent.anchor.y*0.7 + ball.y*0.3;
+      moveToward(ent, zoneX, zoneY, dt, 0.5);
+    }
   }
 }
 
@@ -1014,14 +1042,11 @@ function freezeAndReset(ms){
 
 function resetAfterScore(){
   ball.x = FIELD.cx; ball.y = FIELD.cy; ball.vx=0; ball.vy=0; ball.carrier=null;
-  entities[0].x=300; entities[0].y=FIELD.cy; entities[0].vx=0; entities[0].vy=0;
-  entities[1].x=220; entities[1].y=FIELD.cy-120;
-  entities[2].x=220; entities[2].y=FIELD.cy+120;
-  entities[3].x=700; entities[3].y=FIELD.cy;
-  entities[4].x=780; entities[4].y=FIELD.cy-120;
-  entities[5].x=780; entities[5].y=FIELD.cy+120;
-  entities.forEach(e=>{ e.stun=0; e.tackleCd=0; e.pickupCd=0; e.controlled=false; });
-  controlledEntity = entities[0];
+  entities.forEach(e=>{
+    e.x = e.anchor.x; e.y = e.anchor.y; e.vx=0; e.vy=0;
+    e.stun=0; e.tackleCd=0; e.pickupCd=0; e.controlled=false;
+  });
+  controlledEntity = initialControlledEntity;
   controlledEntity.controlled = true;
   switchCd = 0;
   $("flashText").classList.remove("show");
@@ -1106,53 +1131,106 @@ function drawPosts(){
 }
 
 function drawEntities(){
-  entities.forEach((ent,idx)=>{
+  entities.forEach(ent=>{
     const team = ent.team==="player" ? state.playerTeam : state.cpuTeam;
     if(!team) return;
-    // shadow
+
+    // ground shadow, kept unrotated so it always reads as sitting under the player
     ctx.beginPath();
-    ctx.ellipse(ent.x, ent.y+ent.radius*0.8, ent.radius*0.9, ent.radius*0.4, 0,0,Math.PI*2);
-    ctx.fillStyle = "rgba(0,0,0,0.3)";
+    ctx.ellipse(ent.x, ent.y+ent.radius*0.78, ent.radius*0.95, ent.radius*0.4, 0,0,Math.PI*2);
+    ctx.fillStyle = "rgba(0,0,0,0.32)";
     ctx.fill();
 
     // possession ring
     if(ball.carrier===ent){
       ctx.beginPath();
-      ctx.arc(ent.x, ent.y, ent.radius+6, 0, Math.PI*2);
+      ctx.arc(ent.x, ent.y, ent.radius+9, 0, Math.PI*2);
       ctx.strokeStyle = "rgba(255,210,0,0.9)";
       ctx.lineWidth = 3;
       ctx.stroke();
     }
 
-    ctx.beginPath();
-    ctx.arc(ent.x, ent.y, ent.radius, 0, Math.PI*2);
-    ctx.fillStyle = ent.stun>0 ? "#666" : team.primary;
-    ctx.fill();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = team.secondary;
-    ctx.stroke();
+    drawPlayerBody(ent, team);
 
-    // simple face: two eyes set toward the direction the player is facing
-    const fx = ent.facing.x, fy = ent.facing.y;
-    const px = -fy, py = fx; // perpendicular to facing, for eye spacing
-    const forward = ent.radius*0.32, spread = ent.radius*0.34;
-    ctx.fillStyle = "#fff";
-    ctx.beginPath(); ctx.arc(ent.x+fx*forward+px*spread, ent.y+fy*forward+py*spread, 3, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(ent.x+fx*forward-px*spread, ent.y+fy*forward-py*spread, 3, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = "#1a1a1a";
-    ctx.beginPath(); ctx.arc(ent.x+fx*forward+px*spread, ent.y+fy*forward+py*spread, 1.5, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(ent.x+fx*forward-px*spread, ent.y+fy*forward-py*spread, 1.5, 0, Math.PI*2); ctx.fill();
+    // jersey number, drawn upright in world space regardless of facing rotation
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.font = "bold 9px 'Segoe UI', Roboto, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(ent.number, ent.x, ent.y+1);
 
     if(ent.controlled){
       ctx.beginPath();
-      ctx.moveTo(ent.x, ent.y-ent.radius-14);
-      ctx.lineTo(ent.x-7, ent.y-ent.radius-4);
-      ctx.lineTo(ent.x+7, ent.y-ent.radius-4);
+      ctx.moveTo(ent.x, ent.y-ent.radius-18);
+      ctx.lineTo(ent.x-7, ent.y-ent.radius-8);
+      ctx.lineTo(ent.x+7, ent.y-ent.radius-8);
       ctx.closePath();
       ctx.fillStyle = "#fff";
       ctx.fill();
     }
   });
+}
+
+// Stylised top-down running figure: boots, socks, shorts, jersey with a side
+// panel, and a head with hair + eyes, all rotated to face the direction of travel.
+function drawPlayerBody(ent, team){
+  const r = ent.radius;
+  const angle = Math.atan2(ent.facing.y, ent.facing.x);
+  const moving = Math.hypot(ent.vx, ent.vy) > 12;
+  const stride = Math.sin(performance.now()/95 + ent.x*0.35) * (moving ? r*0.22 : r*0.04);
+
+  ctx.save();
+  ctx.translate(ent.x, ent.y);
+  ctx.rotate(angle);
+
+  // boots (trail behind the body, alternating stride)
+  ctx.fillStyle = "#161616";
+  ctx.beginPath(); ctx.ellipse(-r*0.62, r*0.3+stride, r*0.16, r*0.24, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(-r*0.62, -r*0.3-stride, r*0.16, r*0.24, 0, 0, Math.PI*2); ctx.fill();
+
+  // socks (team secondary colour)
+  ctx.fillStyle = team.secondary;
+  ctx.beginPath(); ctx.ellipse(-r*0.4, r*0.32, r*0.18, r*0.28, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(-r*0.4, -r*0.32, r*0.18, r*0.28, 0, 0, Math.PI*2); ctx.fill();
+
+  // shorts
+  ctx.fillStyle = "#f2f2f2";
+  ctx.beginPath(); ctx.ellipse(-r*0.05, 0, r*0.48, r*0.58, 0, 0, Math.PI*2); ctx.fill();
+
+  // jersey / torso, elongated toward the facing direction
+  ctx.fillStyle = ent.stun>0 ? "#7d7d7d" : team.primary;
+  ctx.beginPath(); ctx.ellipse(r*0.2, 0, r*0.66, r*0.56, 0, 0, Math.PI*2); ctx.fill();
+
+  // guernsey side panel in the secondary colour
+  ctx.fillStyle = team.secondary;
+  ctx.beginPath();
+  ctx.ellipse(r*0.2, 0, r*0.66, r*0.56, 0, -0.6, 0.6);
+  ctx.lineTo(r*0.05, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  // head, leading the direction of travel
+  ctx.fillStyle = ent.skin;
+  ctx.beginPath(); ctx.arc(r*0.88, 0, r*0.46, 0, Math.PI*2); ctx.fill();
+
+  // hair
+  ctx.fillStyle = ent.hair;
+  ctx.beginPath();
+  ctx.arc(r*0.88, 0, r*0.47, Math.PI*1.1, Math.PI*1.98);
+  ctx.closePath();
+  ctx.fill();
+
+  // eyes
+  ctx.fillStyle = "#1a1a1a";
+  ctx.beginPath(); ctx.arc(r*1.05, -r*0.16, r*0.08, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(r*1.05, r*0.16, r*0.08, 0, Math.PI*2); ctx.fill();
+
+  // body outline for definition against the turf
+  ctx.lineWidth = 1.4;
+  ctx.strokeStyle = "rgba(0,0,0,0.25)";
+  ctx.beginPath(); ctx.ellipse(r*0.2, 0, r*0.66, r*0.56, 0, 0, Math.PI*2); ctx.stroke();
+
+  ctx.restore();
 }
 
 function drawBall(){
