@@ -225,7 +225,7 @@
       <button class="btn" id="playBtn">PLAY</button>
     </div>
     <div class="subtitle" style="margin-top:26px;max-width:480px;">
-      Desktop: Arrows/WASD move &middot; Space/F kick &middot; E/Shift handball<br/>
+      Desktop: Arrows/WASD move &middot; Space/F kick &middot; C handball<br/>
       Mobile: Joystick to move &middot; KICK &amp; PASS buttons
     </div>
   </div>
@@ -422,11 +422,66 @@ const ctx = canvas.getContext("2d");
 
 const FIELD = {
   cx: LOGICAL_W/2, cy: LOGICAL_H/2,
-  rx: 470, ry: 270,
-  boundLeft: 45, boundRight: 955, boundTop: 55, boundBottom: 545,
-  goalLeftX: 45, goalRightX: 955,
-  postOffsets: [-46,-16,16,46], // relative to cy -> 4 posts each end
+  rx: 430, ry: 235,
+  boundLeft: 85, boundRight: 915, boundTop: 90, boundBottom: 510,
+  goalLeftX: 85, goalRightX: 915,
+  postOffsets: [-52,-18,18,52], // relative to cy -> 4 posts each end
 };
+
+/* Offscreen stadium backdrop (tiered stands + crowd + floodlights) drawn once
+   in logical field coordinates, then blitted behind the turf every frame. */
+const stadiumCanvas = document.createElement("canvas");
+stadiumCanvas.width = LOGICAL_W;
+stadiumCanvas.height = LOGICAL_H;
+const sctx = stadiumCanvas.getContext("2d");
+
+function buildStadium(){
+  const bgGrad = sctx.createLinearGradient(0,0,0,LOGICAL_H);
+  bgGrad.addColorStop(0,"#0b1420");
+  bgGrad.addColorStop(1,"#050a10");
+  sctx.fillStyle = bgGrad;
+  sctx.fillRect(0,0,LOGICAL_W,LOGICAL_H);
+
+  // tiered grandstand rings, drawn outer band first so inner bands overlap it
+  const tiers = [
+    {pad:96, w:46, color:"#182430"},
+    {pad:58, w:42, color:"#20303e"},
+    {pad:22, w:34, color:"#28394a"},
+  ];
+  tiers.forEach(t=>{
+    sctx.beginPath();
+    sctx.ellipse(FIELD.cx, FIELD.cy, FIELD.rx+t.pad, FIELD.ry+t.pad, 0, 0, Math.PI*2);
+    sctx.lineWidth = t.w;
+    sctx.strokeStyle = t.color;
+    sctx.stroke();
+  });
+
+  // crowd: a dense speckle of tiny seated "fans" filling the stand band
+  const crowdColors = ["#e8c39e","#caa06f","#8a6d5c","#3a3a3a","#c0392b","#2980b9","#f1c40f","#ecf0f1","#7f8c8d"];
+  for(let i=0;i<1100;i++){
+    const ang = Math.random()*Math.PI*2;
+    const band = 1.02 + Math.random()*0.22;
+    const px = FIELD.cx + Math.cos(ang)*(FIELD.rx+18)*band;
+    const py = FIELD.cy + Math.sin(ang)*(FIELD.ry+18)*band;
+    if(px<2||px>LOGICAL_W-2||py<2||py>LOGICAL_H-2) continue;
+    sctx.fillStyle = crowdColors[(Math.random()*crowdColors.length)|0];
+    sctx.beginPath();
+    sctx.arc(px,py,1.8,0,Math.PI*2);
+    sctx.fill();
+  }
+
+  // floodlight towers at each corner
+  [[60,40],[LOGICAL_W-60,40],[60,LOGICAL_H-40],[LOGICAL_W-60,LOGICAL_H-40]].forEach(([x,y])=>{
+    sctx.fillStyle = "#0a0a0a";
+    sctx.fillRect(x-4,y-26,8,52);
+    const glow = sctx.createRadialGradient(x,y-26,2,x,y-26,26);
+    glow.addColorStop(0,"rgba(255,255,220,0.9)");
+    glow.addColorStop(1,"rgba(255,255,220,0)");
+    sctx.fillStyle = glow;
+    sctx.beginPath(); sctx.arc(x,y-26,26,0,Math.PI*2); sctx.fill();
+  });
+}
+buildStadium();
 
 function resizeCanvas(){
   const wrap = $("fieldWrap");
@@ -456,7 +511,7 @@ window.addEventListener("keydown", (e)=>{
     case "ArrowLeft": case "KeyA": keys.left=true; break;
     case "ArrowRight": case "KeyD": keys.right=true; break;
     case "Space": case "KeyF": if(!e.repeat) input.kickEdge=true; e.preventDefault(); break;
-    case "KeyE": case "ShiftLeft": case "ShiftRight": if(!e.repeat) input.passEdge=true; break;
+    case "KeyC": if(!e.repeat) input.passEdge=true; break;
   }
 });
 window.addEventListener("keyup", (e)=>{
@@ -551,6 +606,8 @@ $("pauseBtn").addEventListener("click", ()=>{
 let entities = [];
 let ball;
 let flashTimer = 0;
+let controlledEntity = null;   // whichever player-team entity currently takes keyboard/touch input
+let switchCd = 0;              // brief cooldown to stop control flickering between two close teammates
 
 function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
 
@@ -560,11 +617,36 @@ function makeEntity(team, controlled, x, y){
     x, y, vx:0, vy:0,
     facing:{x: team==="player"?1:-1, y:0},
     radius: 16,
-    speed: controlled ? 210 : (170 + Math.random()*30),
+    speed: 138 + Math.random()*14,
     stun: 0,
     tackleCd: 0,
     pickupCd: 0,
   };
+}
+
+// Returns whichever of the player's on-field trio is currently closest to the ball.
+function nearestPlayerEntityToBall(){
+  let best=null, bd=Infinity;
+  entities.forEach(e=>{
+    if(e.team!=="player") return;
+    const d = dist(e, ball);
+    if(d<bd){ bd=d; best=e; }
+  });
+  return best;
+}
+
+// Hands control to the nearest teammate to the ball, like an arcade sports "auto switch".
+// Never switches away from whoever is currently carrying the ball.
+function updateControlSwitch(dt){
+  switchCd -= dt;
+  if(controlledEntity===ball.carrier) return;
+  const nearest = nearestPlayerEntityToBall();
+  if(nearest && nearest!==controlledEntity && switchCd<=0){
+    controlledEntity.controlled = false;
+    nearest.controlled = true;
+    controlledEntity = nearest;
+    switchCd = 0.25;
+  }
 }
 
 function resetPositions(){
@@ -576,6 +658,8 @@ function resetPositions(){
   const pMate1 = makeEntity("player", false, 220, FIELD.cy-120);
   const pMate2 = makeEntity("player", false, 220, FIELD.cy+120);
   entities.push(pControlled, pMate1, pMate2);
+  controlledEntity = pControlled;
+  switchCd = 0;
 
   // CPU team: 3 AI
   const c1 = makeEntity("cpu", false, 700, FIELD.cy);
@@ -585,9 +669,9 @@ function resetPositions(){
 
   ball = {
     x: FIELD.cx, y: FIELD.cy, vx:0, vy:0,
-    radius: 9,
+    radius: 14,
     carrier: null,
-    friction: 0.985,
+    friction: 0.978,
     lastToucher: null,
     immunity: {}, // entity index cooldown for pickup after kick/pass
     scoreLock: false,
@@ -654,7 +738,7 @@ function aiUpdate(ent, dt){
     }
     if(pressureDist < 60){
       const { ent:mate, dist:mateDist } = nearestTeammate(ent);
-      if(mate && mateDist < 260){
+      if(mate && mateDist < 200){
         doPass(ent, true);
         return;
       }
@@ -700,7 +784,7 @@ function doKick(ent, isAI){
     dx = ent.facing.x; dy = ent.facing.y;
     const d2 = Math.hypot(dx,dy)||1; dx/=d2; dy/=d2;
   }
-  const power = 560;
+  const power = 410;
   ball.vx = dx*power; ball.vy = dy*power;
   ball.carrier = null;
   ball.lastToucher = ent;
@@ -722,7 +806,7 @@ function doPass(ent, isAI){
   let dx = tx-ent.x, dy = ty-ent.y;
   const d = Math.hypot(dx,dy) || 1;
   dx/=d; dy/=d;
-  const power = 380;
+  const power = 300;
   ball.vx = dx*power; ball.vy = dy*power;
   ball.carrier = null;
   ball.lastToucher = ent;
@@ -750,9 +834,10 @@ requestAnimationFrame(gameLoop);
 
 function update(dt){
   updateKeyboardVector();
+  updateControlSwitch(dt);
 
   // controlled player movement
-  const controlled = entities[0];
+  const controlled = controlledEntity;
   if(controlled.stun<=0){
     controlled.vx = input.x*controlled.speed;
     controlled.vy = input.y*controlled.speed;
@@ -778,8 +863,8 @@ function update(dt){
     input.passEdge = false;
   }
 
-  // AI entities (indices 1,2 teammates; 3,4,5 cpu)
-  for(let i=1;i<entities.length;i++){ aiUpdate(entities[i], dt); }
+  // AI runs every entity except whichever one is currently under player control
+  entities.forEach(ent=>{ if(ent!==controlledEntity) aiUpdate(ent, dt); });
 
   // integrate movement + bounds
   entities.forEach(ent=>{
@@ -935,7 +1020,10 @@ function resetAfterScore(){
   entities[3].x=700; entities[3].y=FIELD.cy;
   entities[4].x=780; entities[4].y=FIELD.cy-120;
   entities[5].x=780; entities[5].y=FIELD.cy+120;
-  entities.forEach(e=>{ e.stun=0; e.tackleCd=0; e.pickupCd=0; });
+  entities.forEach(e=>{ e.stun=0; e.tackleCd=0; e.pickupCd=0; e.controlled=false; });
+  controlledEntity = entities[0];
+  controlledEntity.controlled = true;
+  switchCd = 0;
   $("flashText").classList.remove("show");
 }
 
@@ -951,13 +1039,16 @@ function render(){
 }
 
 function drawField(){
-  // turf gradient stripes
-  ctx.fillStyle = "#1c7a3d";
-  ctx.fillRect(0,0,LOGICAL_W,LOGICAL_H);
+  // stadium bowl (stands + crowd + floodlights) behind the turf
+  ctx.drawImage(stadiumCanvas, 0, 0, LOGICAL_W, LOGICAL_H);
+
+  // turf + gradient stripes, clipped to the oval so the stadium shows outside it
   ctx.save();
   ctx.beginPath();
   ctx.ellipse(FIELD.cx, FIELD.cy, FIELD.rx, FIELD.ry, 0, 0, Math.PI*2);
   ctx.clip();
+  ctx.fillStyle = "#1c7a3d";
+  ctx.fillRect(0,0,LOGICAL_W,LOGICAL_H);
   for(let i=-2;i<24;i++){
     ctx.fillStyle = i%2===0 ? "rgba(255,255,255,0.035)" : "rgba(0,0,0,0.03)";
     ctx.fillRect(i*44, 0, 44, LOGICAL_H);
@@ -997,9 +1088,19 @@ function drawPosts(){
   [FIELD.goalLeftX, FIELD.goalRightX].forEach(x=>{
     offsets.forEach((o,i)=>{
       const isGoalPost = i===1 || i===2;
-      const h = isGoalPost ? 56 : 38;
+      const h = isGoalPost ? 74 : 50;
+      const w = isGoalPost ? 9 : 7;
+      const baseY = FIELD.cy+o;
+      // ground shadow so the post reads as standing upright on the turf
+      ctx.beginPath();
+      ctx.ellipse(x, baseY, w*1.4, 3.5, 0, 0, Math.PI*2);
+      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      ctx.fill();
+      // dark outline behind a bright white post for contrast against the turf/stadium
+      ctx.fillStyle = "#0a0a0a";
+      ctx.fillRect(x-w/2-1.5, baseY-h-1.5, w+3, h+3);
       ctx.fillStyle = "#fff";
-      ctx.fillRect(x-3, FIELD.cy+o-h, 6, h);
+      ctx.fillRect(x-w/2, baseY-h, w, h);
     });
   });
 }
@@ -1030,6 +1131,17 @@ function drawEntities(){
     ctx.lineWidth = 3;
     ctx.strokeStyle = team.secondary;
     ctx.stroke();
+
+    // simple face: two eyes set toward the direction the player is facing
+    const fx = ent.facing.x, fy = ent.facing.y;
+    const px = -fy, py = fx; // perpendicular to facing, for eye spacing
+    const forward = ent.radius*0.32, spread = ent.radius*0.34;
+    ctx.fillStyle = "#fff";
+    ctx.beginPath(); ctx.arc(ent.x+fx*forward+px*spread, ent.y+fy*forward+py*spread, 3, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(ent.x+fx*forward-px*spread, ent.y+fy*forward-py*spread, 3, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = "#1a1a1a";
+    ctx.beginPath(); ctx.arc(ent.x+fx*forward+px*spread, ent.y+fy*forward+py*spread, 1.5, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(ent.x+fx*forward-px*spread, ent.y+fy*forward-py*spread, 1.5, 0, Math.PI*2); ctx.fill();
 
     if(ent.controlled){
       ctx.beginPath();
