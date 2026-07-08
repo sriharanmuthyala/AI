@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Vedant's Metro Runner</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<div id="game-wrap">
+
+  <!-- ============ LOADING SCREEN ============ -->
+  <div id="screen-loading" class="screen active">
+    <div class="loading-card">
+      <div class="loading-title">VEDANT'S<br/>METRO RUNNER</div>
+      <div class="loading-spinner"></div>
+      <div class="loading-text">Warming up the tracks...</div>
+    </div>
+  </div>
+
+  <!-- ============ START SCREEN ============ -->
+  <div id="screen-start" class="screen">
+    <div class="panel">
+      <h1 class="game-title">VEDANT'S<br/><span>METRO RUNNER</span></h1>
+      <p class="tagline">Run! Dodge! Dad's on your tail! 🏃‍♂️👮</p>
+
+      <div class="hero-preview">
+        <canvas id="hero-canvas" width="220" height="180"></canvas>
+      </div>
+
+      <p class="character-intro">
+        Meet <strong>Vedant</strong> — quick, clever, and always one step
+        ahead. His dad, the neighbourhood's most determined (and mustachioed)
+        police officer, is chasing him through the metros of
+        <strong>Hyderabad</strong> and <strong>Melbourne</strong>. Can you
+        help Vedant out-run him?
+      </p>
+
+      <div class="menu-buttons">
+        <button id="btn-start" class="btn btn-primary" data-sfx="click">▶ START RUN</button>
+        <button id="btn-instructions" class="btn btn-secondary" data-sfx="click">❓ HOW TO PLAY</button>
+        <button id="btn-mute-start" class="btn btn-icon" data-sfx="click">🔊</button>
+      </div>
+
+      <div class="highscore-line">
+        🏆 High Score: <span id="start-highscore">0</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ INSTRUCTIONS SCREEN ============ -->
+  <div id="screen-instructions" class="screen">
+    <div class="panel">
+      <h2 class="panel-title">How To Play</h2>
+
+      <div class="instructions-grid">
+        <div class="instr-item">
+          <div class="instr-keys">⬅️ ➡️</div>
+          <div>Move between lanes</div>
+        </div>
+        <div class="instr-item">
+          <div class="instr-keys">⬆️</div>
+          <div>Jump over low obstacles</div>
+        </div>
+        <div class="instr-item">
+          <div class="instr-keys">⬇️</div>
+          <div>Slide under gates</div>
+        </div>
+        <div class="instr-item">
+          <div class="instr-keys">📱</div>
+          <div>Swipe or use on-screen buttons on mobile</div>
+        </div>
+      </div>
+
+      <h3 class="mini-heading">Power-Ups</h3>
+      <div class="powerup-legend">
+        <div class="pu-item"><span class="pu-dot magnet"></span> Magnet — pulls in nearby coins</div>
+        <div class="pu-item"><span class="pu-dot speed"></span> Speed Boost — zoom past everything</div>
+        <div class="pu-item"><span class="pu-dot shield"></span> Shield — blocks one crash</div>
+        <div class="pu-item"><span class="pu-dot sneaker"></span> Sneaker Boost — jump higher</div>
+      </div>
+
+      <p class="fine-print">Trains &amp; signal poles block a whole lane — switch lanes to dodge them! Cones, crates, barriers &amp; benches can be jumped. Crossing gates must be slid under.</p>
+
+      <button id="btn-back-from-instructions" class="btn btn-primary" data-sfx="click">GOT IT!</button>
+    </div>
+  </div>
+
+  <!-- ============ GAME SCREEN ============ -->
+  <div id="screen-game" class="screen">
+    <div id="hud">
+      <div class="hud-left">
+        <div class="hud-score">⭐ <span id="hud-score">0</span></div>
+        <div class="hud-coins">🪙 <span id="hud-coins">0</span></div>
+      </div>
+      <div class="hud-center">
+        <div id="hud-theme">Hyderabad Metro</div>
+        <div id="hud-distance">0m</div>
+      </div>
+      <div class="hud-right">
+        <button id="btn-pause" class="btn btn-icon small" data-sfx="click">⏸</button>
+        <button id="btn-mute-game" class="btn btn-icon small" data-sfx="click">🔊</button>
+      </div>
+    </div>
+
+    <div id="powerup-hud"></div>
+
+    <canvas id="game-canvas" width="480" height="720"></canvas>
+
+    <div id="achievement-toast"></div>
+
+    <!-- Touch controls (also usable on desktop) -->
+    <div id="touch-controls">
+      <button class="touch-btn" data-action="left">⬅️</button>
+      <button class="touch-btn" data-action="slide">⬇️</button>
+      <button class="touch-btn" data-action="jump">⬆️</button>
+      <button class="touch-btn" data-action="right">➡️</button>
+    </div>
+  </div>
+
+  <!-- ============ PAUSE OVERLAY ============ -->
+  <div id="screen-pause" class="screen overlay">
+    <div class="panel">
+      <h2 class="panel-title">Paused</h2>
+      <div class="menu-buttons">
+        <button id="btn-resume" class="btn btn-primary" data-sfx="click">▶ RESUME</button>
+        <button id="btn-restart-from-pause" class="btn btn-secondary" data-sfx="click">🔁 RESTART</button>
+        <button id="btn-quit-to-menu" class="btn btn-secondary" data-sfx="click">🏠 MAIN MENU</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ GAME OVER SCREEN ============ -->
+  <div id="screen-gameover" class="screen overlay">
+    <div class="panel">
+      <h2 id="gameover-headline" class="panel-title">Gotcha!</h2>
+      <p id="gameover-line" class="tagline">Dad finally caught up with you!</p>
+
+      <div class="gameover-stats">
+        <div class="stat"><span class="stat-label">Distance</span><span id="go-distance" class="stat-value">0m</span></div>
+        <div class="stat"><span class="stat-label">Coins</span><span id="go-coins" class="stat-value">0</span></div>
+        <div class="stat"><span class="stat-label">Score</span><span id="go-score" class="stat-value">0</span></div>
+        <div class="stat"><span class="stat-label">Best</span><span id="go-best" class="stat-value">0</span></div>
+      </div>
+      <div id="go-newbest" class="new-best">🎉 NEW HIGH SCORE!</div>
+
+      <div class="menu-buttons">
+        <button id="btn-restart" class="btn btn-primary" data-sfx="click">🔁 RUN AGAIN</button>
+        <button id="btn-menu" class="btn btn-secondary" data-sfx="click">🏠 MAIN MENU</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/input.js"></script>
+<script src="js/sprites.js"></script>
+<script src="js/background.js"></script>
+<script src="js/particles.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/game.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
